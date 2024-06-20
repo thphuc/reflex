@@ -12,22 +12,31 @@ from reflex.vars import BaseVar, Var, VarData
 
 VarData.update_forward_refs()  # Ensure all type definitions are resolved
 
+SYSTEM_COLOR_MODE: str = "system"
 LIGHT_COLOR_MODE: str = "light"
 DARK_COLOR_MODE: str = "dark"
 
 # Reference the global ColorModeContext
-color_mode_var_data = VarData(  # type: ignore
-    imports={
-        f"/{constants.Dirs.CONTEXTS_PATH}": {ImportVar(tag="ColorModeContext")},
-        "react": {ImportVar(tag="useContext")},
-    },
-    hooks={
-        f"const [ {constants.ColorMode.NAME}, {constants.ColorMode.TOGGLE} ] = useContext(ColorModeContext)": None,
-    },
-)
-# Var resolves to the current color mode for the app ("light" or "dark")
+color_mode_imports = {
+    f"/{constants.Dirs.CONTEXTS_PATH}": [ImportVar(tag="ColorModeContext")],
+    "react": [ImportVar(tag="useContext")],
+}
+color_mode_toggle_hooks = {
+    f"const {{ {constants.ColorMode.RESOLVED_NAME}, {constants.ColorMode.TOGGLE} }} = useContext(ColorModeContext)": None,
+}
+color_mode_set_hooks = {
+    f"const {{ {constants.ColorMode.NAME}, {constants.ColorMode.RESOLVED_NAME}, {constants.ColorMode.TOGGLE}, {constants.ColorMode.SET} }} = useContext(ColorModeContext)": None,
+}
+color_mode_var_data = VarData(imports=color_mode_imports, hooks=color_mode_toggle_hooks)
+# Var resolves to the current color mode for the app ("light", "dark" or "system")
 color_mode = BaseVar(
     _var_name=constants.ColorMode.NAME,
+    _var_type="str",
+    _var_data=color_mode_var_data,
+)
+# Var resolves to the resolved color mode for the app ("light" or "dark")
+resolved_color_mode = BaseVar(
+    _var_name=constants.ColorMode.RESOLVED_NAME,
     _var_type="str",
     _var_data=color_mode_var_data,
 )
@@ -36,6 +45,11 @@ toggle_color_mode = BaseVar(
     _var_name=constants.ColorMode.TOGGLE,
     _var_type=EventChain,
     _var_data=color_mode_var_data,
+)
+set_color_mode = BaseVar(
+    _var_name=constants.ColorMode.SET,
+    _var_type=EventChain,
+    _var_data=VarData(imports=color_mode_imports, hooks=color_mode_set_hooks),
 )
 
 breakpoints = ["0", "30em", "48em", "62em", "80em", "96em"]
@@ -47,6 +61,8 @@ STYLE_PROP_SHORTHAND_MAPPING = {
     "marginY": ("marginTop", "marginBottom"),
     "bg": ("background",),
     "bgColor": ("backgroundColor",),
+    # Radix components derive their font from this CSS var, not inherited from body or class.
+    "fontFamily": ("fontFamily", "--default-font-family"),
 }
 
 
@@ -76,7 +92,7 @@ def convert_item(style_item: str | Var) -> tuple[str, VarData | None]:
         return str(style_item), style_item._var_data
 
     # Otherwise, convert to Var to collapse VarData encoded in f-string.
-    new_var = Var.create(style_item)
+    new_var = Var.create(style_item, _var_is_string=False)
     if new_var is not None and new_var._var_data:
         # The wrapped backtick is used to identify the Var for interpolation.
         return f"`{str(new_var)}`", new_var._var_data
@@ -159,12 +175,17 @@ def format_style_key(key: str) -> Tuple[str, ...]:
 class Style(dict):
     """A style dictionary."""
 
-    def __init__(self, style_dict: dict | None = None):
+    def __init__(self, style_dict: dict | None = None, **kwargs):
         """Initialize the style.
 
         Args:
             style_dict: The style dictionary.
+            kwargs: Other key value pairs to apply to the dict update.
         """
+        if style_dict:
+            style_dict.update(kwargs)
+        else:
+            style_dict = kwargs
         style_dict, self._var_data = convert(style_dict or {})
         super().__init__(style_dict)
 
@@ -175,12 +196,15 @@ class Style(dict):
             style_dict: The style dictionary.
             kwargs: Other key value pairs to apply to the dict update.
         """
-        if kwargs:
-            style_dict = {**(style_dict or {}), **kwargs}
         if not isinstance(style_dict, Style):
             converted_dict = type(self)(style_dict)
         else:
             converted_dict = style_dict
+        if kwargs:
+            if converted_dict is None:
+                converted_dict = type(self)(kwargs)
+            else:
+                converted_dict.update(kwargs)
         # Combine our VarData with that of any Vars in the style_dict that was passed.
         self._var_data = VarData.merge(self._var_data, converted_dict._var_data)
         super().update(converted_dict)
@@ -193,7 +217,7 @@ class Style(dict):
             value: The value to set.
         """
         # Create a Var to collapse VarData encoded in f-string.
-        _var = Var.create(value)
+        _var = Var.create(value, _var_is_string=False)
         if _var is not None:
             # Carry the imports/hooks when setting a Var as a value.
             self._var_data = VarData.merge(self._var_data, _var._var_data)
@@ -262,7 +286,7 @@ def format_as_emotion(style_dict: dict[str, Any]) -> Style | None:
 
 
 def convert_dict_to_style_and_format_emotion(
-    raw_dict: dict[str, Any]
+    raw_dict: dict[str, Any],
 ) -> dict[str, Any] | None:
     """Convert a dict to a style dict and then format as emotion.
 
@@ -274,3 +298,17 @@ def convert_dict_to_style_and_format_emotion(
 
     """
     return format_as_emotion(Style(raw_dict))
+
+
+STACK_CHILDREN_FULL_WIDTH = {
+    "& :where(.rx-Stack)": {
+        "width": "100%",
+    },
+    "& :where(.rx-Stack) > :where( "
+    "div:not(.rt-Box, .rx-Upload, .rx-Html),"
+    "input, select, textarea, table"
+    ")": {
+        "width": "100%",
+        "flex_shrink": "1",
+    },
+}

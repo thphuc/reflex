@@ -17,9 +17,10 @@ from reflex.components.component import (
 )
 from reflex.config import get_config
 from reflex.state import BaseState
-from reflex.style import LIGHT_COLOR_MODE
+from reflex.style import SYSTEM_COLOR_MODE
 from reflex.utils.exec import is_prod_mode
 from reflex.utils.imports import ImportVar
+from reflex.utils.prerequisites import get_web_dir
 from reflex.vars import Var
 
 
@@ -33,7 +34,7 @@ def _compile_document_root(root: Component) -> str:
         The compiled document root.
     """
     return templates.DOCUMENT_ROOT.render(
-        imports=utils.compile_imports(root.get_imports()),
+        imports=utils.compile_imports(root._get_all_imports()),
         document=root.render(),
     )
 
@@ -48,9 +49,9 @@ def _compile_app(app_root: Component) -> str:
         The compiled app.
     """
     return templates.APP_ROOT.render(
-        imports=utils.compile_imports(app_root.get_imports()),
-        custom_codes=app_root.get_custom_code(),
-        hooks={**app_root.get_hooks_internal(), **app_root.get_hooks()},
+        imports=utils.compile_imports(app_root._get_all_imports()),
+        custom_codes=app_root._get_all_custom_code(),
+        hooks={**app_root._get_all_hooks_internal(), **app_root._get_all_hooks()},
         render=app_root.render(),
     )
 
@@ -79,7 +80,7 @@ def _compile_contexts(state: Optional[Type[BaseState]], theme: Component | None)
     """
     appearance = getattr(theme, "appearance", None)
     if appearance is None:
-        appearance = LIGHT_COLOR_MODE
+        appearance = SYSTEM_COLOR_MODE
     return (
         templates.CONTEXT.render(
             initial_state=utils.compile_state(state),
@@ -109,7 +110,7 @@ def _compile_page(
     Returns:
         The compiled component.
     """
-    imports = component.get_imports()
+    imports = component._get_all_imports()
     imports = utils.compile_imports(imports)
 
     # Compile the code to render the component.
@@ -117,9 +118,9 @@ def _compile_page(
 
     return templates.PAGE.render(
         imports=imports,
-        dynamic_imports=component.get_dynamic_imports(),
-        custom_codes=component.get_custom_code(),
-        hooks={**component.get_hooks_internal(), **component.get_hooks()},
+        dynamic_imports=component._get_all_dynamic_imports(),
+        custom_codes=component._get_all_custom_code(),
+        hooks={**component._get_all_hooks_internal(), **component._get_all_hooks()},
         render=component.render(),
         **kwargs,
     )
@@ -169,12 +170,12 @@ def _compile_root_stylesheet(stylesheets: list[str]) -> str:
                 raise FileNotFoundError(
                     f"The stylesheet file {stylesheet_full_path} does not exist."
                 )
-            stylesheet = f"@/{stylesheet.strip('/')}"
+            stylesheet = f"../{constants.Dirs.PUBLIC}/{stylesheet.strip('/')}"
         sheets.append(stylesheet) if stylesheet not in sheets else None
     return templates.STYLE.render(stylesheets=sheets)
 
 
-def _compile_component(component: Component) -> str:
+def _compile_component(component: Component | StatefulComponent) -> str:
     """Compile a single component.
 
     Args:
@@ -263,10 +264,19 @@ def _compile_stateful_components(
             # Reset this flag to render the actual component.
             component.rendered_as_shared = False
 
+            # Include dynamic imports in the shared component.
+            if dynamic_imports := component._get_all_dynamic_imports():
+                rendered_components.update(
+                    {dynamic_import: None for dynamic_import in dynamic_imports}
+                )
+
+            # Include custom code in the shared component.
             rendered_components.update(
-                {code: None for code in component.get_custom_code()},
+                {code: None for code in component._get_all_custom_code()},
             )
-            all_import_dicts.append(component.get_imports())
+
+            # Include all imports in the shared component.
+            all_import_dicts.append(component._get_all_imports())
 
             # Indicate that this component now imports from the shared file.
             component.rendered_as_shared = True
@@ -460,7 +470,7 @@ def compile_tailwind(
         The compiled Tailwind config.
     """
     # Get the path for the output file.
-    output_path = constants.Tailwind.CONFIG
+    output_path = get_web_dir() / constants.Tailwind.CONFIG
 
     # Compile the config.
     code = _compile_tailwind(config)
@@ -474,7 +484,7 @@ def remove_tailwind_from_postcss() -> tuple[str, str]:
         The path and code of the compiled postcss.config.js.
     """
     # Get the path for the output file.
-    output_path = constants.Dirs.POSTCSS_JS
+    output_path = str(get_web_dir() / constants.Dirs.POSTCSS_JS)
 
     code = [
         line
@@ -493,7 +503,7 @@ def purge_web_pages_dir():
         return
 
     # Empty out the web pages directory.
-    utils.empty_dir(constants.Dirs.WEB_PAGES, keep_files=["_app.js"])
+    utils.empty_dir(get_web_dir() / constants.Dirs.PAGES, keep_files=["_app.js"])
 
 
 class ExecutorSafeFunctions:

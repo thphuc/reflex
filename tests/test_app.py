@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import io
+import json
 import os.path
+import re
 import unittest.mock
 import uuid
 from pathlib import Path
@@ -10,7 +12,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 import sqlmodel
-from fastapi import UploadFile
+from fastapi import FastAPI, UploadFile
 from starlette_admin.auth import AuthProvider
 from starlette_admin.contrib.sqla.admin import Admin
 from starlette_admin.contrib.sqla.view import ModelView
@@ -25,7 +27,9 @@ from reflex.app import (
     process,
     upload,
 )
-from reflex.components import Component, Cond, Fragment
+from reflex.components import Component
+from reflex.components.base.fragment import Fragment
+from reflex.components.core.cond import Cond
 from reflex.components.radix.themes.typography.text import Text
 from reflex.event import Event
 from reflex.middleware import HydrateMiddleware
@@ -35,12 +39,13 @@ from reflex.state import (
     OnLoadInternalState,
     RouterData,
     State,
+    StateManagerMemory,
     StateManagerRedis,
     StateUpdate,
     _substate_key,
 )
 from reflex.style import Style
-from reflex.utils import format
+from reflex.utils import exceptions, format
 from reflex.vars import ComputedVar
 
 from .conftest import chdir
@@ -230,9 +235,9 @@ def test_add_page_default_route(app: App, index_page, about_page):
     """
     assert app.pages == {}
     app.add_page(index_page)
-    assert set(app.pages.keys()) == {"index"}
+    assert app.pages.keys() == {"index"}
     app.add_page(about_page)
-    assert set(app.pages.keys()) == {"index", "about"}
+    assert app.pages.keys() == {"index", "about"}
 
 
 def test_add_page_set_route(app: App, index_page, windows_platform: bool):
@@ -246,7 +251,7 @@ def test_add_page_set_route(app: App, index_page, windows_platform: bool):
     route = "test" if windows_platform else "/test"
     assert app.pages == {}
     app.add_page(index_page, route=route)
-    assert set(app.pages.keys()) == {"test"}
+    assert app.pages.keys() == {"test"}
 
 
 def test_add_page_set_route_dynamic(index_page, windows_platform: bool):
@@ -257,12 +262,13 @@ def test_add_page_set_route_dynamic(index_page, windows_platform: bool):
         windows_platform: Whether the system is windows.
     """
     app = App(state=EmptyState)
+    assert app.state is not None
     route = "/test/[dynamic]"
     if windows_platform:
         route.lstrip("/").replace("/", "\\")
     assert app.pages == {}
     app.add_page(index_page, route=route)
-    assert set(app.pages.keys()) == {"test/[dynamic]"}
+    assert app.pages.keys() == {"test/[dynamic]"}
     assert "dynamic" in app.state.computed_vars
     assert app.state.computed_vars["dynamic"]._deps(objclass=EmptyState) == {
         constants.ROUTER
@@ -281,7 +287,7 @@ def test_add_page_set_route_nested(app: App, index_page, windows_platform: bool)
     route = "test\\nested" if windows_platform else "/test/nested"
     assert app.pages == {}
     app.add_page(index_page, route=route)
-    assert set(app.pages.keys()) == {route.strip(os.path.sep)}
+    assert app.pages.keys() == {route.strip(os.path.sep)}
 
 
 def test_add_page_invalid_api_route(app: App, index_page):
@@ -304,6 +310,39 @@ def test_add_page_invalid_api_route(app: App, index_page):
     # These should be fine
     app.add_page(index_page, route="api2")
     app.add_page(index_page, route="/foo/api")
+
+
+def page1():
+    return rx.fragment()
+
+
+def page2():
+    return rx.fragment()
+
+
+def index():
+    return rx.fragment()
+
+
+@pytest.mark.parametrize(
+    "first_page,second_page, route",
+    [
+        (lambda: rx.fragment(), lambda: rx.fragment(rx.text("second")), "/"),
+        (rx.fragment(rx.text("first")), rx.fragment(rx.text("second")), "/page1"),
+        (
+            lambda: rx.fragment(rx.text("first")),
+            rx.fragment(rx.text("second")),
+            "page3",
+        ),
+        (page1, page2, "page1"),
+        (index, index, None),
+        (page1, page1, None),
+    ],
+)
+def test_add_duplicate_page_route_error(app, first_page, second_page, route):
+    app.add_page(first_page, route=route)
+    with pytest.raises(ValueError):
+        app.add_page(second_page, route="/" + route.strip("/") if route else None)
 
 
 def test_initialize_with_admin_dashboard(test_model):
@@ -950,6 +989,7 @@ async def test_dynamic_route_var_route_change_completed_on_load(
     if windows_platform:
         route.lstrip("/").replace("/", "\\")
     app = app_module_mock.app = App(state=DynamicState)
+    assert app.state is not None
     assert arg_name not in app.state.vars
     app.add_page(index_page, route=route, on_load=DynamicState.on_load)  # type: ignore
     assert arg_name in app.state.vars
@@ -1144,7 +1184,7 @@ async def test_process_events(mocker, token: str):
         "ip": "127.0.0.1",
     }
     app = App(state=GenState)
-    mocker.patch.object(app, "postprocess", AsyncMock())
+    mocker.patch.object(app, "_postprocess", AsyncMock())
     event = Event(
         token=token, name="gen_state.go", payload={"c": 5}, router_data=router_data
     )
@@ -1153,7 +1193,7 @@ async def test_process_events(mocker, token: str):
         pass
 
     assert (await app.state_manager.get_state(event.substate_token)).value == 5
-    assert app.postprocess.call_count == 6
+    assert app._postprocess.call_count == 6
 
     if isinstance(app.state_manager, StateManagerRedis):
         await app.state_manager.close()
@@ -1231,9 +1271,9 @@ def compilable_app(tmp_path) -> Generator[tuple[App, Path], None, None]:
     app_path = tmp_path / "app"
     web_dir = app_path / ".web"
     web_dir.mkdir(parents=True)
-    (web_dir / "package.json").touch()
+    (web_dir / constants.PackageJson.PATH).touch()
     app = App(theme=None)
-    app.get_frontend_packages = unittest.mock.Mock()
+    app._get_frontend_packages = unittest.mock.Mock()
     with chdir(app_path):
         yield app, web_dir
 
@@ -1246,7 +1286,7 @@ def test_app_wrap_compile_theme(compilable_app):
     """
     app, web_dir = compilable_app
     app.theme = rx.theme(accent_color="plum")
-    app.compile_()
+    app._compile()
     app_js_contents = (web_dir / "pages" / "_app.js").read_text()
     app_js_lines = [
         line.strip() for line in app_js_contents.splitlines() if line.strip()
@@ -1296,7 +1336,7 @@ def test_app_wrap_priority(compilable_app):
         return Fragment1.create(Fragment3.create())
 
     app.add_page(page)
-    app.compile_()
+    app._compile()
     app_js_contents = (web_dir / "pages" / "_app.js").read_text()
     app_js_lines = [
         line.strip() for line in app_js_contents.splitlines() if line.strip()
@@ -1352,9 +1392,72 @@ def test_app_state_determination():
     a4 = App()
     assert a4.state is None
 
-    # Referencing an event handler enables state.
     a4.add_page(rx.box(rx.button("Click", on_click=rx.console_log(""))), route="/")
+    assert a4.state is None
+
+    a4.add_page(
+        rx.box(rx.button("Click", on_click=DynamicState.on_counter)), route="/page2"
+    )
     assert a4.state is not None
+
+
+# for coverage
+def test_raise_on_connect_error():
+    """Test that the connect_error function is called."""
+    with pytest.raises(ValueError):
+        App(connect_error_component="Foo")
+
+
+def test_raise_on_state():
+    """Test that the state is set."""
+    # state kwargs is deprecated, we just make sure the app is created anyway.
+    _app = App(state=State)
+    assert _app.state is not None
+    assert issubclass(_app.state, State)
+
+
+def test_call_app():
+    """Test that the app can be called."""
+    app = App()
+    api = app()
+    assert isinstance(api, FastAPI)
+
+
+def test_app_with_optional_endpoints():
+    from reflex.components.core.upload import Upload
+
+    app = App()
+    Upload.is_used = True
+    app._add_optional_endpoints()
+    # TODO: verify the availability of the endpoints in app.api
+
+
+def test_app_state_manager():
+    app = App()
+    with pytest.raises(ValueError):
+        app.state_manager
+    app._enable_state()
+    assert app.state_manager is not None
+    assert isinstance(app.state_manager, (StateManagerMemory, StateManagerRedis))
+
+
+def test_generate_component():
+    def index():
+        return rx.box("Index")
+
+    def index_mismatch():
+        return rx.match(
+            1,
+            (1, rx.box("Index")),
+            (2, "About"),
+            "Bar",
+        )
+
+    comp = App._generate_component(index)  # type: ignore
+    assert isinstance(comp, Component)
+
+    with pytest.raises(exceptions.MatchTypeError):
+        App._generate_component(index_mismatch)  # type: ignore
 
 
 def test_add_page_component_returning_tuple():
@@ -1384,3 +1487,55 @@ def test_add_page_component_returning_tuple():
     )
     assert isinstance((third_text := page2_fragment_wrapper.children[0]), Text)
     assert str(third_text.children[0].contents) == "{`third`}"  # type: ignore
+
+
+@pytest.mark.parametrize("export", (True, False))
+def test_app_with_transpile_packages(compilable_app, export):
+    class C1(rx.Component):
+        library = "foo@1.2.3"
+        tag = "Foo"
+        transpile_packages: List[str] = ["foo"]
+
+    class C2(rx.Component):
+        library = "bar@4.5.6"
+        tag = "Bar"
+        transpile_packages: List[str] = ["bar@4.5.6"]
+
+    class C3(rx.NoSSRComponent):
+        library = "baz@7.8.10"
+        tag = "Baz"
+        transpile_packages: List[str] = ["baz@7.8.9"]
+
+    class C4(rx.NoSSRComponent):
+        library = "quuc@2.3.4"
+        tag = "Quuc"
+        transpile_packages: List[str] = ["quuc"]
+
+    class C5(rx.Component):
+        library = "quuc"
+        tag = "Quuc"
+
+    app, web_dir = compilable_app
+    page = Fragment.create(
+        C1.create(), C2.create(), C3.create(), C4.create(), C5.create()
+    )
+    app.add_page(page, route="/")
+    app._compile(export=export)
+
+    next_config = (web_dir / "next.config.js").read_text()
+    transpile_packages_match = re.search(r"transpilePackages: (\[.*?\])", next_config)
+    transpile_packages_json = transpile_packages_match.group(1)  # type: ignore
+    transpile_packages = sorted(json.loads(transpile_packages_json))
+
+    assert transpile_packages == [
+        "bar",
+        "foo",
+        "quuc",
+    ]
+
+    if export:
+        assert 'output: "export"' in next_config
+        assert f'distDir: "{constants.Dirs.STATIC}"' in next_config
+    else:
+        assert 'output: "export"' not in next_config
+        assert f'distDir: "{constants.Dirs.STATIC}"' not in next_config

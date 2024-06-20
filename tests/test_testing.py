@@ -1,4 +1,5 @@
 """Unit tests for the included testing tools."""
+
 import pytest
 
 from reflex.constants import IS_WINDOWS
@@ -24,7 +25,7 @@ def test_app_harness(tmp_path):
 
         app = rx.App(state=State)
         app.add_page(lambda: rx.text("Basic App"), route="/", title="index")
-        app.compile_()
+        app._compile()
 
     with AppHarness.create(
         root=tmp_path,

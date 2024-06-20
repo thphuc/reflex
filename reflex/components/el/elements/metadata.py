@@ -1,4 +1,5 @@
 """Element classes. This is an auto-generated file. Do not edit. See ../generate.py."""
+
 from typing import Union
 
 from reflex.components.el.element import Element
@@ -53,3 +54,10 @@ class Title(Element):  # noqa: E742
     """Display the title element."""
 
     tag = "title"
+
+
+base = Base.create
+head = Head.create
+link = Link.create
+meta = Meta.create
+title = Title.create

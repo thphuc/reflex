@@ -1,4 +1,5 @@
 """Integration tests for links and related components."""
+
 from typing import Generator
 from urllib.parse import urlsplit
 
@@ -7,7 +8,7 @@ from selenium.webdriver.common.by import By
 
 from reflex.testing import AppHarness
 
-from .utils import poll_for_navigation
+from .utils import SessionStorage, poll_for_navigation
 
 
 def NavigationApp():
@@ -65,6 +66,9 @@ async def test_navigation_app(navigation_app: AppHarness):
     """
     assert navigation_app.app_instance is not None, "app is not running"
     driver = navigation_app.frontend()
+
+    ss = SessionStorage(driver)
+    assert AppHarness._poll_for(lambda: ss.get("token") is not None), "token not found"
 
     internal_link = driver.find_element(By.ID, "internal")
 

@@ -21,30 +21,30 @@ class Dirs(SimpleNamespace):
     WEB = ".web"
     # The name of the assets directory.
     APP_ASSETS = "assets"
+    # The name of the assets directory for external ressource (a subfolder of APP_ASSETS).
+    EXTERNAL_APP_ASSETS = "external"
     # The name of the utils file.
     UTILS = "utils"
-    # The name of the output static directory.
-    STATIC = "_static"
     # The name of the state file.
     STATE_PATH = "/".join([UTILS, "state"])
     # The name of the components file.
     COMPONENTS_PATH = "/".join([UTILS, "components"])
     # The name of the contexts file.
     CONTEXTS_PATH = "/".join([UTILS, "context"])
-    # The directory where the app pages are compiled to.
-    WEB_PAGES = os.path.join(WEB, "pages")
-    # The directory where the static build is located.
-    WEB_STATIC = os.path.join(WEB, STATIC)
-    # The directory where the utils file is located.
-    WEB_UTILS = os.path.join(WEB, UTILS)
-    # The directory where the assets are located.
-    WEB_ASSETS = os.path.join(WEB, "public")
-    # The env json file.
-    ENV_JSON = os.path.join(WEB, "env.json")
-    # The reflex json file.
-    REFLEX_JSON = os.path.join(WEB, "reflex.json")
-    # The path to postcss.config.js
-    POSTCSS_JS = os.path.join(WEB, "postcss.config.js")
+    # The name of the output static directory.
+    STATIC = "_static"
+    # The name of the public html directory served at "/"
+    PUBLIC = "public"
+    # The directory where styles are located.
+    STYLES = "styles"
+    # The name of the pages directory.
+    PAGES = "pages"
+    # The name of the env json file.
+    ENV_JSON = "env.json"
+    # The name of the reflex json file.
+    REFLEX_JSON = "reflex.json"
+    # The name of the postcss config file.
+    POSTCSS_JS = "postcss.config.js"
 
 
 class Reflex(SimpleNamespace):
@@ -57,7 +57,7 @@ class Reflex(SimpleNamespace):
     VERSION = metadata.version(MODULE_NAME)
 
     # The reflex json file.
-    JSON = os.path.join(Dirs.WEB, "reflex.json")
+    JSON = "reflex.json"
 
     # Files and directories used to init a new project.
     # The directory to store reflex dependencies.
@@ -88,12 +88,11 @@ class ReflexHostingCLI(SimpleNamespace):
 class Templates(SimpleNamespace):
     """Constants related to Templates."""
 
-    # Dynamically get the enum values from the .templates folder
-    template_dir = os.path.join(Reflex.ROOT_DIR, Reflex.MODULE_NAME, ".templates/apps")
-    template_dirs = next(os.walk(template_dir))[1]
+    # The route on Reflex backend to query which templates are available and their URLs.
+    APP_TEMPLATES_ROUTE = "/app-templates"
 
-    # Create an enum value for each directory in the .templates folder
-    Kind = Enum("Kind", {template.upper(): template for template in template_dirs})
+    # The default template
+    DEFAULT = "blank"
 
     class Dirs(SimpleNamespace):
         """Folders used by the template system of Reflex."""
@@ -114,7 +113,7 @@ class Next(SimpleNamespace):
     # The NextJS config file
     CONFIG_FILE = "next.config.js"
     # The sitemap config file.
-    SITEMAP_CONFIG_FILE = os.path.join(Dirs.WEB, "next-sitemap.config.js")
+    SITEMAP_CONFIG_FILE = "next-sitemap.config.js"
     # The node modules directory.
     NODE_MODULES = "node_modules"
     # The package lock file.
@@ -127,9 +126,11 @@ class Next(SimpleNamespace):
 class ColorMode(SimpleNamespace):
     """Constants related to ColorMode."""
 
-    NAME = "colorMode"
+    NAME = "rawColorMode"
+    RESOLVED_NAME = "resolvedColorMode"
     USE = "useColorMode"
     TOGGLE = "toggleColorMode"
+    SET = "setColorMode"
 
 
 # Env modes
@@ -179,6 +180,7 @@ class Ping(SimpleNamespace):
 # Keys in the client_side_storage dict
 COOKIES = "cookies"
 LOCAL_STORAGE = "local_storage"
+SESSION_STORAGE = "session_storage"
 
 # If this env var is set to "yes", App.compile will be a no-op
 SKIP_COMPILE_ENV_VAR = "__REFLEX_SKIP_COMPILE"

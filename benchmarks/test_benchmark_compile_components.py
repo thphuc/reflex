@@ -13,6 +13,9 @@ from reflex import constants
 from reflex.compiler import utils
 from reflex.testing import AppHarness, chdir
 from reflex.utils import build
+from reflex.utils.prerequisites import get_web_dir
+
+web_pages = get_web_dir() / constants.Dirs.PAGES
 
 
 def render_component(num: int):
@@ -162,7 +165,8 @@ def app_with_10_components(
     yield AppHarness.create(
         root=root,
         app_source=functools.partial(
-            AppWithTenComponentsOnePage, render_component=render_component  # type: ignore
+            AppWithTenComponentsOnePage,
+            render_component=render_component,  # type: ignore
         ),
     )  # type: ignore
 
@@ -184,7 +188,8 @@ def app_with_100_components(
     yield AppHarness.create(
         root=root,
         app_source=functools.partial(
-            AppWithHundredComponentOnePage, render_component=render_component  # type: ignore
+            AppWithHundredComponentOnePage,
+            render_component=render_component,  # type: ignore
         ),
     )  # type: ignore
 
@@ -206,7 +211,8 @@ def app_with_1000_components(
     yield AppHarness.create(
         root=root,
         app_source=functools.partial(
-            AppWithThousandComponentsOnePage, render_component=render_component  # type: ignore
+            AppWithThousandComponentsOnePage,
+            render_component=render_component,  # type: ignore
         ),
     )  # type: ignore
 
@@ -228,13 +234,13 @@ def test_app_10_compile_time_cold(benchmark, app_with_10_components):
 
     def setup():
         with chdir(app_with_10_components.app_path):
-            utils.empty_dir(constants.Dirs.WEB_PAGES, keep_files=["_app.js"])
+            utils.empty_dir(web_pages, ["_app.js"])
             app_with_10_components._initialize_app()
             build.setup_frontend(app_with_10_components.app_path)
 
     def benchmark_fn():
         with chdir(app_with_10_components.app_path):
-            app_with_10_components.app_instance.compile_()
+            app_with_10_components.app_instance._compile()
 
     benchmark.pedantic(benchmark_fn, setup=setup, rounds=10)
 
@@ -259,7 +265,7 @@ def test_app_10_compile_time_warm(benchmark, app_with_10_components):
 
     def benchmark_fn():
         with chdir(app_with_10_components.app_path):
-            app_with_10_components.app_instance.compile_()
+            app_with_10_components.app_instance._compile()
 
     benchmark(benchmark_fn)
 
@@ -281,13 +287,13 @@ def test_app_100_compile_time_cold(benchmark, app_with_100_components):
 
     def setup():
         with chdir(app_with_100_components.app_path):
-            utils.empty_dir(constants.Dirs.WEB_PAGES, keep_files=["_app.js"])
+            utils.empty_dir(web_pages, ["_app.js"])
             app_with_100_components._initialize_app()
             build.setup_frontend(app_with_100_components.app_path)
 
     def benchmark_fn():
         with chdir(app_with_100_components.app_path):
-            app_with_100_components.app_instance.compile_()
+            app_with_100_components.app_instance._compile()
 
     benchmark.pedantic(benchmark_fn, setup=setup, rounds=5)
 
@@ -312,7 +318,7 @@ def test_app_100_compile_time_warm(benchmark, app_with_100_components):
 
     def benchmark_fn():
         with chdir(app_with_100_components.app_path):
-            app_with_100_components.app_instance.compile_()
+            app_with_100_components.app_instance._compile()
 
     benchmark(benchmark_fn)
 
@@ -334,13 +340,13 @@ def test_app_1000_compile_time_cold(benchmark, app_with_1000_components):
 
     def setup():
         with chdir(app_with_1000_components.app_path):
-            utils.empty_dir(constants.Dirs.WEB_PAGES, keep_files=["_app.js"])
+            utils.empty_dir(web_pages, keep_files=["_app.js"])
             app_with_1000_components._initialize_app()
             build.setup_frontend(app_with_1000_components.app_path)
 
     def benchmark_fn():
         with chdir(app_with_1000_components.app_path):
-            app_with_1000_components.app_instance.compile_()
+            app_with_1000_components.app_instance._compile()
 
     benchmark.pedantic(benchmark_fn, setup=setup, rounds=5)
 
@@ -365,6 +371,6 @@ def test_app_1000_compile_time_warm(benchmark, app_with_1000_components):
 
     def benchmark_fn():
         with chdir(app_with_1000_components.app_path):
-            app_with_1000_components.app_instance.compile_()
+            app_with_1000_components.app_instance._compile()
 
     benchmark(benchmark_fn)
